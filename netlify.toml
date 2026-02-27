@@ -1,0 +1,11 @@
+[build]
+  publish = "."
+
+# HTML dosyasındaki %%PLACEHOLDER%% değerlerini
+# Netlify environment variables ile değiştirir
+[[plugins]]
+  package = "@netlify/plugin-replace"
+
+  [plugins.inputs]
+    "%%SUPABASE_URL%%"      = "$SUPABASE_URL"
+    "%%SUPABASE_ANON_KEY%%" = "$SUPABASE_ANON_KEY"
