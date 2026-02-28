@@ -370,6 +370,7 @@
                                 sortOrder={sortOrder}
                                 setSortOrder={setSortOrder}
                                 isAdmin={isAdmin}
+                                currentUser={currentUser}
                                 onAdd={() => { setModalType('feedback'); setEditingItem(null); setShowModal(true); }}
                                 onEdit={(item) => { setEditingItem(item); setModalType('feedback'); setShowModal(true); }}
                                 onDelete={async (id) => {
@@ -464,8 +465,34 @@
 
                                         if (editingItem) {
                                             await supabase.from('feedbacks').update(data).eq('id', editingItem.id);
+                                            // Durum değişikliği logu
+                                            if (editingItem.status !== data.status) {
+                                                await supabase.from('feedback_logs').insert([{
+                                                    feedback_id: editingItem.id,
+                                                    user_name: currentUser.name,
+                                                    action: 'status_change',
+                                                    old_value: editingItem.status === 'open' ? 'Açık' : 'Kapalı',
+                                                    new_value: data.status === 'open' ? 'Açık' : 'Kapalı'
+                                                }]);
+                                            } else {
+                                                await supabase.from('feedback_logs').insert([{
+                                                    feedback_id: editingItem.id,
+                                                    user_name: currentUser.name,
+                                                    action: 'edited',
+                                                    note: 'Kayıt güncellendi'
+                                                }]);
+                                            }
                                         } else {
-                                            await supabase.from('feedbacks').insert([{ ...data, created_by: currentUser.username }]);
+                                            const { data: newFb } = await supabase.from('feedbacks').insert([{ ...data, created_by: currentUser.username }]).select().single();
+                                            // Oluşturulma logu
+                                            if (newFb) {
+                                                await supabase.from('feedback_logs').insert([{
+                                                    feedback_id: newFb.id,
+                                                    user_name: currentUser.name,
+                                                    action: 'created',
+                                                    note: `${data.type === 'complaint' ? 'Şikayet' : 'Olumlu geri bildirim'} oluşturuldu`
+                                                }]);
+                                            }
                                         }
                                     } else if (modalType === 'amenity') {
                                         await supabase.from('amenities').insert([{ ...data, created_by: currentUser.username }]);
@@ -735,7 +762,7 @@
 
         const PAGE_SIZE = 10;
 
-        function FeedbacksView({ feedbacks, filters, setFilters, sortBy, setSortBy, sortOrder, setSortOrder, isAdmin, onAdd, onEdit, onDelete, onBulkDelete, onBulkClose, stats }) {
+        function FeedbacksView({ feedbacks, filters, setFilters, sortBy, setSortBy, sortOrder, setSortOrder, isAdmin, currentUser, onAdd, onEdit, onDelete, onBulkDelete, onBulkClose, stats }) {
             const [currentPage, setCurrentPage] = React.useState(1);
             const [selectedIds, setSelectedIds] = React.useState([]);
 
@@ -915,6 +942,7 @@
                                     </div>
                                     <div className="card-date">📅 {formatDate(fb.date)}</div>
                                 </div>
+                                <ActivityLog feedbackId={fb.id} currentUser={currentUser} />
                             </div>
                         ))}
                     </div>
@@ -929,6 +957,101 @@
                             <button className="page-btn" onClick={() => setCurrentPage(p => Math.min(totalPages, p+1))} disabled={currentPage === totalPages}>›</button>
                             <button className="page-btn" onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages}>»</button>
                             <span className="page-info">{feedbacks.length} kayıt / {totalPages} sayfa</span>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ==================== ACTIVITY LOG COMPONENT ====================
+        function ActivityLog({ feedbackId, currentUser }) {
+            const [logs, setLogs] = React.useState([]);
+            const [open, setOpen] = React.useState(false);
+            const [note, setNote] = React.useState('');
+            const [saving, setSaving] = React.useState(false);
+
+            const loadLogs = async () => {
+                const { data } = await supabase
+                    .from('feedback_logs')
+                    .select('*')
+                    .eq('feedback_id', feedbackId)
+                    .order('created_at', { ascending: false });
+                setLogs(data || []);
+            };
+
+            React.useEffect(() => {
+                if (open) loadLogs();
+            }, [open, feedbackId]);
+
+            const addNote = async () => {
+                if (!note.trim()) return;
+                setSaving(true);
+                await supabase.from('feedback_logs').insert([{
+                    feedback_id: feedbackId,
+                    user_name: currentUser.name,
+                    action: 'comment',
+                    note: note.trim()
+                }]);
+                setNote('');
+                await loadLogs();
+                setSaving(false);
+            };
+
+            const actionLabel = (log) => {
+                if (log.action === 'comment') return { icon: '💬', label: 'Yorum', color: '#3b82f6' };
+                if (log.action === 'status_change') return { icon: '🔄', label: `${log.old_value} → ${log.new_value}`, color: '#f59e0b' };
+                if (log.action === 'created') return { icon: '✨', label: 'Oluşturuldu', color: '#22c55e' };
+                if (log.action === 'edited') return { icon: '✏️', label: 'Düzenlendi', color: '#8b5cf6' };
+                return { icon: '📌', label: log.action, color: '#6b7280' };
+            };
+
+            return (
+                <div className="activity-section">
+                    <button className="activity-toggle" onClick={() => setOpen(!open)}>
+                        {open ? '▲' : '▼'} Aktivite Geçmişi {logs.length > 0 && !open ? `(${logs.length})` : ''}
+                    </button>
+
+                    {open && (
+                        <div className="activity-panel">
+                            <div className="activity-add">
+                                <input
+                                    type="text"
+                                    value={note}
+                                    onChange={e => setNote(e.target.value)}
+                                    onKeyDown={e => e.key === 'Enter' && addNote()}
+                                    placeholder="Not ekle... (Enter ile kaydet)"
+                                    className="activity-input"
+                                    disabled={saving}
+                                />
+                                <button className="activity-save-btn" onClick={addNote} disabled={saving || !note.trim()}>
+                                    {saving ? '...' : 'Ekle'}
+                                </button>
+                            </div>
+
+                            {logs.length === 0 ? (
+                                <p className="activity-empty">Henüz aktivite yok</p>
+                            ) : (
+                                <div className="activity-list">
+                                    {logs.map(log => {
+                                        const { icon, label, color } = actionLabel(log);
+                                        return (
+                                            <div key={log.id} className="activity-item">
+                                                <div className="activity-icon" style={{background: color + '20', color}}>
+                                                    {icon}
+                                                </div>
+                                                <div className="activity-content">
+                                                    <div className="activity-header-row">
+                                                        <span className="activity-action" style={{color}}>{label}</span>
+                                                        <span className="activity-user">👤 {log.user_name}</span>
+                                                        <span className="activity-time">{formatDateTime(log.created_at)}</span>
+                                                    </div>
+                                                    {log.note && <p className="activity-note">{log.note}</p>}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -2852,6 +2975,93 @@
             }
         }
 
+        /* ACTIVITY LOG */
+        .activity-section {
+            margin-top: 12px;
+            border-top: 1px solid var(--gray-200);
+            padding-top: 8px;
+        }
+        .activity-toggle {
+            background: none;
+            border: none;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--gray-700);
+            cursor: pointer;
+            padding: 4px 0;
+            font-family: inherit;
+            width: 100%;
+            text-align: left;
+            transition: color 0.2s;
+        }
+        .activity-toggle:hover { color: var(--primary); }
+        .activity-panel {
+            margin-top: 12px;
+            animation: fadeIn 0.2s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+        .activity-add {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .activity-input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid var(--gray-200);
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .activity-input:focus { border-color: var(--accent); }
+        .activity-save-btn {
+            padding: 8px 16px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .activity-save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .activity-empty { font-size: 13px; color: var(--gray-700); text-align: center; padding: 12px; }
+        .activity-list { display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; }
+        .activity-item {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            padding: 8px;
+            background: var(--gray-50);
+            border-radius: 8px;
+        }
+        .activity-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .activity-content { flex: 1; min-width: 0; }
+        .activity-header-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 2px;
+        }
+        .activity-action { font-size: 12px; font-weight: 700; }
+        .activity-user { font-size: 11px; color: var(--gray-700); }
+        .activity-time { font-size: 11px; color: var(--gray-700); margin-left: auto; }
+        .activity-note { font-size: 13px; color: var(--gray-900); margin: 0; }
+
         /* TOAST */
         .toast {
             position: fixed;
@@ -2975,6 +3185,93 @@
         .empty-icon { font-size: 48px; margin-bottom: 16px; }
         .empty-state h3 { font-size: 20px; color: var(--primary); margin-bottom: 8px; }
         .empty-state p { font-size: 14px; }
+
+        /* ACTIVITY LOG */
+        .activity-section {
+            margin-top: 12px;
+            border-top: 1px solid var(--gray-200);
+            padding-top: 8px;
+        }
+        .activity-toggle {
+            background: none;
+            border: none;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--gray-700);
+            cursor: pointer;
+            padding: 4px 0;
+            font-family: inherit;
+            width: 100%;
+            text-align: left;
+            transition: color 0.2s;
+        }
+        .activity-toggle:hover { color: var(--primary); }
+        .activity-panel {
+            margin-top: 12px;
+            animation: fadeIn 0.2s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+        .activity-add {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .activity-input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid var(--gray-200);
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .activity-input:focus { border-color: var(--accent); }
+        .activity-save-btn {
+            padding: 8px 16px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .activity-save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .activity-empty { font-size: 13px; color: var(--gray-700); text-align: center; padding: 12px; }
+        .activity-list { display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; }
+        .activity-item {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            padding: 8px;
+            background: var(--gray-50);
+            border-radius: 8px;
+        }
+        .activity-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .activity-content { flex: 1; min-width: 0; }
+        .activity-header-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 2px;
+        }
+        .activity-action { font-size: 12px; font-weight: 700; }
+        .activity-user { font-size: 11px; color: var(--gray-700); }
+        .activity-time { font-size: 11px; color: var(--gray-700); margin-left: auto; }
+        .activity-note { font-size: 13px; color: var(--gray-900); margin: 0; }
 
         /* TOAST */
         .toast {
