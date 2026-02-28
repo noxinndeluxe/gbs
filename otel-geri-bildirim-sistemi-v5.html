@@ -1444,7 +1444,7 @@
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': 'Bearer ' + (window.RESEND_KEY || prompt('Resend API Key:'))
+                            'Authorization': 'Bearer %%RESEND_API_KEY%%'
                         },
                         body: JSON.stringify({
                             from: 'Hotel System <onboarding@resend.dev>',
