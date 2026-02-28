@@ -1067,26 +1067,40 @@
             );
         }
 
+        const AMENITY_ICONS = {
+            'Meyve Sepeti': '🍎', 'Çikolata': '🍫', 'Şampanya': '🥂',
+            'Çiçek': '💐', 'Pasta': '🎂', 'Welcome Drink': '🍹',
+            'Özel İkram': '⭐', 'Diğer': '🎁'
+        };
+
         function AmenitiesView({ amenities, isAdmin, onAdd, onDelete }) {
-            const [dateFilter, setDateFilter] = useState({ from: '', to: '' });
+            const today = new Date().toISOString().split('T')[0];
+            const [dateFilter, setDateFilter] = useState({ from: today, to: today });
+            const [showFilter, setShowFilter] = useState(false);
 
             const filteredAmenities = amenities.filter(am => {
-                if (dateFilter.from && am.created_at < dateFilter.from) return false;
-                if (dateFilter.to) {
-                    const amDate = new Date(am.created_at).toISOString().split('T')[0];
-                    if (amDate > dateFilter.to) return false;
-                }
+                const amDate = new Date(am.created_at).toISOString().split('T')[0];
+                if (dateFilter.from && amDate < dateFilter.from) return false;
+                if (dateFilter.to && amDate > dateFilter.to) return false;
                 return true;
             });
+
+            const isToday = dateFilter.from === today && dateFilter.to === today;
 
             return (
                 <div className="view-container">
                     <div className="view-header">
                         <div>
                             <h1>Oda İkramları</h1>
-                            <p>{filteredAmenities.length} ikram kaydı</p>
+                            <p>
+                                {isToday ? 'Bugün' : `${dateFilter.from || '...'} – ${dateFilter.to || '...'}`}
+                                {' · '}{filteredAmenities.length} kayıt
+                            </p>
                         </div>
                         <div className="header-actions">
+                            <button className="btn btn-ghost" onClick={() => setShowFilter(!showFilter)}>
+                                🗓️ {showFilter ? 'Filtreyi Gizle' : 'Tarih Filtresi'}
+                            </button>
                             <button className="btn btn-secondary" onClick={() => exportAmenitiesExcel(filteredAmenities)}>
                                 📊 Excel
                             </button>
@@ -1098,49 +1112,66 @@
                         </div>
                     </div>
 
-                    <div className="filters-panel">
-                        <div className="filter-row">
-                            <span style={{fontWeight: 600, color: 'var(--gray-700)'}}>📅 Tarih Filtresi:</span>
-                            <input
-                                type="date"
-                                value={dateFilter.from}
-                                onChange={(e) => setDateFilter({...dateFilter, from: e.target.value})}
-                                placeholder="Başlangıç"
-                                title="Başlangıç Tarihi"
-                            />
-                            <input
-                                type="date"
-                                value={dateFilter.to}
-                                onChange={(e) => setDateFilter({...dateFilter, to: e.target.value})}
-                                placeholder="Bitiş"
-                                title="Bitiş Tarihi"
-                            />
-                            <button className="btn btn-ghost" onClick={() => setDateFilter({ from: '', to: '' })}>
-                                ✕ Temizle
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="amenities-grid">
-                        {filteredAmenities.map(am => (
-                            <div key={am.id} className="amenity-card">
-                                <div className="amenity-header">
-                                    <div className="amenity-icon">🎁</div>
-                                    <div className="amenity-room">Oda {am.room_number}</div>
-                                    {isAdmin && (
-                                        <button className="action-btn danger" onClick={() => onDelete(am.id)}>🗑️</button>
-                                    )}
-                                </div>
-                                <h3 className="amenity-type">{am.amenity_type}</h3>
-                                <p className="amenity-reason"><strong>Sebep:</strong> {am.reason}</p>
-                                {am.notes && <p className="amenity-notes"><strong>Not:</strong> {am.notes}</p>}
-                                <div className="amenity-footer">
-                                    <span>👤 {am.created_by}</span>
-                                    <span>📅 {formatDateTime(am.created_at)}</span>
-                                </div>
+                    {showFilter && (
+                        <div className="filters-panel">
+                            <div className="filter-row">
+                                <span style={{fontWeight: 600, color: 'var(--gray-700)'}}>📅 Tarih Aralığı:</span>
+                                <input type="date" value={dateFilter.from}
+                                    onChange={(e) => setDateFilter({...dateFilter, from: e.target.value})} />
+                                <input type="date" value={dateFilter.to}
+                                    onChange={(e) => setDateFilter({...dateFilter, to: e.target.value})} />
+                                <button className="btn btn-ghost" onClick={() => setDateFilter({ from: today, to: today })}>
+                                    📅 Bugün
+                                </button>
+                                <button className="btn btn-ghost" onClick={() => {
+                                    const w = new Date(); w.setDate(w.getDate() - 7);
+                                    setDateFilter({ from: w.toISOString().split('T')[0], to: today });
+                                }}>Son 7 Gün</button>
+                                <button className="btn btn-ghost" onClick={() => setDateFilter({ from: '', to: '' })}>
+                                    Tümü
+                                </button>
                             </div>
-                        ))}
-                    </div>
+                        </div>
+                    )}
+
+                    {filteredAmenities.length === 0 ? (
+                        <div className="empty-state">
+                            <div className="empty-icon">🎁</div>
+                            <h3>{isToday ? 'Bugün henüz ikram girilmemiş' : 'Bu tarihte ikram bulunamadı'}</h3>
+                            <p>Farklı bir tarih seçmek için "Tarih Filtresi" butonunu kullanın</p>
+                        </div>
+                    ) : (
+                        <div className="amenities-grid">
+                            {filteredAmenities.map(am => (
+                                <div key={am.id} className="amenity-card">
+                                    <div className="amenity-card-top">
+                                        <div className="amenity-badge-row">
+                                            <span className="amenity-icon-small">{AMENITY_ICONS[am.amenity_type] || '🎁'}</span>
+                                            <span className="amenity-type-label">{am.amenity_type}</span>
+                                        </div>
+                                        <div className="amenity-room-badge">Oda {am.room_number}</div>
+                                        {isAdmin && (
+                                            <button className="action-btn danger" onClick={() => onDelete(am.id)}>🗑️</button>
+                                        )}
+                                    </div>
+                                    <p className="amenity-reason-text">
+                                        <span className="amenity-label">Sebep</span>
+                                        {am.reason}
+                                    </p>
+                                    {am.notes && (
+                                        <p className="amenity-notes-text">
+                                            <span className="amenity-label">Not</span>
+                                            {am.notes}
+                                        </p>
+                                    )}
+                                    <div className="amenity-footer-new">
+                                        <span className="amenity-by">👤 {am.created_by}</span>
+                                        <span className="amenity-time">🕐 {formatDateTime(am.created_at)}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             );
         }
@@ -2824,63 +2855,86 @@
 
         .amenity-card {
             background: white;
-            padding: 24px;
-            border-radius: 16px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-            border-left: 4px solid var(--accent);
-            transition: all 0.3s;
+            padding: 20px;
+            border-radius: 14px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            border-left: 3px solid var(--accent);
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
-
         .amenity-card:hover {
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.09);
             transform: translateY(-2px);
         }
-
-        .amenity-header {
+        .amenity-card-top {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .amenity-badge-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1;
+        }
+        .amenity-icon-small {
+            font-size: 20px;
+            line-height: 1;
+        }
+        .amenity-type-label {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--primary);
+            font-family: 'Inter', sans-serif;
+        }
+        .amenity-room-badge {
+            background: var(--primary);
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 20px;
+            white-space: nowrap;
+        }
+        .amenity-label {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--accent);
+            background: #fef9ec;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-right: 6px;
+        }
+        .amenity-reason-text {
+            font-size: 13px;
+            color: var(--gray-900);
+            margin: 0;
+            line-height: 1.5;
+        }
+        .amenity-notes-text {
+            font-size: 13px;
+            color: var(--gray-700);
+            font-style: italic;
+            margin: 0;
+            line-height: 1.5;
+        }
+        .amenity-footer-new {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 16px;
-        }
-
-        .amenity-icon {
-            font-size: 40px;
-        }
-
-        .amenity-room {
-            flex: 1;
-            text-align: center;
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--primary);
-        }
-
-        .amenity-type {
-            font-size: 20px;
-            color: var(--accent);
-            margin-bottom: 12px;
-        }
-
-        .amenity-reason,
-        .amenity-notes {
-            font-size: 14px;
-            color: var(--gray-700);
-            line-height: 1.6;
-            margin-bottom: 8px;
-        }
-
-        .amenity-notes {
-            font-style: italic;
-        }
-
-        .amenity-footer {
-            display: flex;
-            justify-content: space-between;
             font-size: 12px;
             color: var(--gray-700);
-            padding-top: 16px;
+            padding-top: 10px;
             border-top: 1px solid var(--gray-200);
+            margin-top: 2px;
         }
+        .amenity-by { font-weight: 500; }
+        .amenity-time { opacity: 0.8; }
 
         /* ANALYTICS */
         .analytics-grid {
