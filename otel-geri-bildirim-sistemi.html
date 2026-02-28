@@ -431,6 +431,10 @@
 
                         {currentView === 'analytics' && <AnalyticsView stats={stats} />}
                         
+                        {currentView === 'notifications' && isAdmin && (
+                            <NotificationsView />
+                        )}
+
                         {currentView === 'users' && isAdmin && (
                             <UsersView
                                 users={users}
@@ -645,6 +649,11 @@
                         {isAdmin && (
                             <button className={currentView === 'users' ? 'active' : ''} onClick={() => setCurrentView('users')}>
                                 <span className="nav-icon">👥</span> Kullanıcılar
+                            </button>
+                        )}
+                        {isAdmin && (
+                            <button className={currentView === 'notifications' ? 'active' : ''} onClick={() => setCurrentView('notifications')}>
+                                <span className="nav-icon">📧</span> Bildirim Ayarları
                             </button>
                         )}
                     </nav>
@@ -1382,6 +1391,158 @@
                                     </div>
                                 ))}
                             </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ==================== NOTIFICATIONS VIEW ====================
+        function NotificationsView() {
+            const [contacts, setContacts] = React.useState([]);
+            const [loading, setLoading] = React.useState(true);
+            const [saving, setSaving] = React.useState(null);
+            const [toast, setToastLocal] = React.useState(null);
+
+            const showLocal = (msg, type='success') => {
+                setToastLocal({ msg, type });
+                setTimeout(() => setToastLocal(null), 3000);
+            };
+
+            const loadContacts = async () => {
+                setLoading(true);
+                const { data } = await supabase
+                    .from('department_contacts')
+                    .select('*')
+                    .order('id');
+                setContacts(data || []);
+                setLoading(false);
+            };
+
+            React.useEffect(() => { loadContacts(); }, []);
+
+            const updateContact = async (id, field, value) => {
+                setContacts(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c));
+            };
+
+            const saveContact = async (contact) => {
+                setSaving(contact.id);
+                const { error } = await supabase
+                    .from('department_contacts')
+                    .update({ email: contact.email, name: contact.name })
+                    .eq('id', contact.id);
+                setSaving(null);
+                if (error) showLocal('Kayıt hatası: ' + error.message, 'error');
+                else showLocal(contact.department + ' güncellendi ✓');
+            };
+
+            const testEmail = async (contact) => {
+                if (!contact.email) { showLocal('Önce e-posta adresini girin', 'error'); return; }
+                setSaving('test-' + contact.id);
+                try {
+                    const res = await fetch('https://api.resend.com/emails', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer ' + (window.RESEND_KEY || prompt('Resend API Key:'))
+                        },
+                        body: JSON.stringify({
+                            from: 'Hotel System <onboarding@resend.dev>',
+                            to: contact.email,
+                            subject: '✅ Test - Hotel Bildirim Sistemi',
+                            html: '<p>Bu bir test e-postasıdır. Bildirim sistemi çalışıyor!</p><p><strong>Departman:</strong> ' + contact.department + '</p>'
+                        })
+                    });
+                    if (res.ok) showLocal('Test maili gönderildi → ' + contact.email);
+                    else showLocal('Mail gönderilemedi', 'error');
+                } catch(e) {
+                    showLocal('Bağlantı hatası', 'error');
+                }
+                setSaving(null);
+            };
+
+            return (
+                <div className="view-container">
+                    {toast && (
+                        <div className={`toast toast-${toast.type}`} style={{position:'fixed',bottom:32,right:32,zIndex:9999}}>
+                            {toast.type === 'success' ? '✅' : '❌'} {toast.msg}
+                        </div>
+                    )}
+
+                    <div className="view-header">
+                        <div>
+                            <h1>📧 Bildirim Ayarları</h1>
+                            <p>Gecikmiş şikayet bildirimlerinin gideceği departman e-postaları</p>
+                        </div>
+                    </div>
+
+                    <div className="notif-info-box">
+                        <span className="notif-info-icon">ℹ️</span>
+                        <div>
+                            <strong>Nasıl çalışır?</strong> Her gün sabah 09:00'da sistem gecikmiş şikayetleri tarar ve
+                            ilgili departman sorumlularına otomatik e-posta gönderir.
+                            E-posta adreslerini aşağıdan güncelleyebilirsiniz.
+                        </div>
+                    </div>
+
+                    {loading ? (
+                        <div style={{textAlign:'center',padding:'40px',color:'var(--gray-700)'}}>Yükleniyor...</div>
+                    ) : (
+                        <div className="notif-grid">
+                            {contacts.map(contact => (
+                                <div key={contact.id} className="notif-card">
+                                    <div className="notif-dept-header">
+                                        <span className="notif-dept-icon">
+                                            {contact.department === 'Yemek ve İçecek' ? '🍽️' :
+                                             contact.department === 'Temizlik' ? '🧹' :
+                                             contact.department === 'Ön Büro' ? '🏨' :
+                                             contact.department === 'Misafir İlişkileri' ? '🤝' :
+                                             contact.department === 'Güvenlik ve Cankurtaran' ? '🛡️' :
+                                             contact.department === 'Teknik Servis' ? '🔧' :
+                                             contact.department === 'Animasyon ve Eğlence' ? '🎭' : '📋'}
+                                        </span>
+                                        <h3>{contact.department}</h3>
+                                    </div>
+
+                                    <div className="notif-form">
+                                        <div className="form-group">
+                                            <label>Sorumlu Adı</label>
+                                            <input
+                                                type="text"
+                                                value={contact.name || ''}
+                                                onChange={e => updateContact(contact.id, 'name', e.target.value)}
+                                                placeholder="Örn: Ahmet Yılmaz"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>E-posta Adresi</label>
+                                            <input
+                                                type="email"
+                                                value={contact.email || ''}
+                                                onChange={e => updateContact(contact.id, 'email', e.target.value)}
+                                                placeholder="sorumlu@otel.com"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="notif-actions">
+                                        <button
+                                            className="btn btn-primary"
+                                            onClick={() => saveContact(contact)}
+                                            disabled={saving === contact.id}
+                                        >
+                                            {saving === contact.id ? '...' : '💾 Kaydet'}
+                                        </button>
+                                        <button
+                                            className="btn btn-secondary"
+                                            onClick={() => testEmail(contact)}
+                                            disabled={saving === 'test-' + contact.id}
+                                        >
+                                            {saving === 'test-' + contact.id ? '...' : '📨 Test Maili'}
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     )}
                 </div>
@@ -2975,6 +3136,60 @@
             }
         }
 
+        /* NOTIFICATIONS */
+        .notif-info-box {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 28px;
+            font-size: 14px;
+            color: #1e40af;
+            line-height: 1.6;
+        }
+        .notif-info-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+        .notif-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+        }
+        .notif-card {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            border-top: 4px solid var(--accent);
+            transition: box-shadow 0.2s;
+        }
+        .notif-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.1); }
+        .notif-dept-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .notif-dept-icon {
+            font-size: 28px;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--gray-50);
+            border-radius: 12px;
+        }
+        .notif-dept-header h3 {
+            font-size: 16px;
+            color: var(--primary);
+            font-family: 'Inter', sans-serif;
+        }
+        .notif-form { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+        .notif-actions { display: flex; gap: 8px; }
+        .notif-actions .btn { flex: 1; justify-content: center; font-size: 13px; padding: 10px; }
+
         /* ACTIVITY LOG */
         .activity-section {
             margin-top: 12px;
@@ -3185,6 +3400,60 @@
         .empty-icon { font-size: 48px; margin-bottom: 16px; }
         .empty-state h3 { font-size: 20px; color: var(--primary); margin-bottom: 8px; }
         .empty-state p { font-size: 14px; }
+
+        /* NOTIFICATIONS */
+        .notif-info-box {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 28px;
+            font-size: 14px;
+            color: #1e40af;
+            line-height: 1.6;
+        }
+        .notif-info-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+        .notif-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+        }
+        .notif-card {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            border-top: 4px solid var(--accent);
+            transition: box-shadow 0.2s;
+        }
+        .notif-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.1); }
+        .notif-dept-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .notif-dept-icon {
+            font-size: 28px;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--gray-50);
+            border-radius: 12px;
+        }
+        .notif-dept-header h3 {
+            font-size: 16px;
+            color: var(--primary);
+            font-family: 'Inter', sans-serif;
+        }
+        .notif-form { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+        .notif-actions { display: flex; gap: 8px; }
+        .notif-actions .btn { flex: 1; justify-content: center; font-size: 13px; padding: 10px; }
 
         /* ACTIVITY LOG */
         .activity-section {
